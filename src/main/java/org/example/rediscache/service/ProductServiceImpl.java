@@ -21,22 +21,54 @@ import java.util.List;
 public class ProductServiceImpl implements ProductService {
     private final ProductRepository productRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final BasicRedisServiceWIthVersion basicRedisServiceWIthVersion;
     private final BasicRedisService basicRedisService;
 
 
     @Override
-    @Cacheable(
-            value = "product",
-            key = "#id",
-            unless = "#result == null"
-    )
+//    @Cacheable(
+//            value = "product",
+//            key = "#id",
+//            unless = "#result == null"
+//    )
     public ProductResponse getProductById(Long id) {
         log.info("Fetching product with id {} from database", id);
-        Product product = productRepository.findById(id).orElse(null);
-        if (product == null) {
-            return null;
+        String key = "products_" + id;
+        ProductResponse cachedProduct = basicRedisService.get(key, ProductResponse.class);
+        if (cachedProduct != null) {
+            log.info("Fetching product with id {} from cache", id);
+            return cachedProduct;
         }
-        return mapToProductResponse(product);
+
+        String lockKey = "lock_products_" + id;
+        Boolean isLockSet = basicRedisService.redisTemplate.opsForValue().setIfAbsent(lockKey, "locked", 10L, java.util.concurrent.TimeUnit.SECONDS);
+        if(isLockSet){
+            try {
+                ProductResponse productResponse = basicRedisServiceWIthVersion.get(key, ProductResponse.class);
+                if(productResponse != null){
+                    log.info("Fetching product with id {} from cache after acquiring lock", id);
+                    return productResponse;
+                }
+                Product product = productRepository.findById(id).orElse(null);
+                if (product == null) {
+                    return null;
+                }
+                ProductResponse response = mapToProductResponse(product);
+                basicRedisServiceWIthVersion.set(key , response, 10L, java.util.concurrent.TimeUnit.MINUTES);
+                return response;
+            }
+            finally {
+                basicRedisService.redisTemplate.delete(lockKey);
+            }
+        }
+        else {
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return getProductById(id);
+        }
     }
 
     @Transactional
@@ -70,7 +102,7 @@ public class ProductServiceImpl implements ProductService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        basicRedisService.set(key , mapToProductResponse(updatedProduct), 10L, java.util.concurrent.TimeUnit.MINUTES);
+        basicRedisServiceWIthVersion.set(key , mapToProductResponse(updatedProduct), 10L, java.util.concurrent.TimeUnit.MINUTES);
         applicationEventPublisher.publishEvent(new ProductUpdateEvent(this, id));
         return mapToProductResponse(updatedProduct);
     }

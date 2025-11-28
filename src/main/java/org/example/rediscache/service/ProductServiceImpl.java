@@ -8,13 +8,10 @@ import org.example.rediscache.model.Product;
 import org.example.rediscache.payload.dto.ProductResponse;
 import org.example.rediscache.payload.request.ProductRequest;
 import org.example.rediscache.repository.ProductRepository;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.util.List;
 
 
@@ -24,11 +21,12 @@ import java.util.List;
 public class ProductServiceImpl implements ProductService {
     private final ProductRepository productRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final BasicRedisService basicRedisService;
 
 
     @Override
     @Cacheable(
-            value = "products",
+            value = "product",
             key = "#id",
             unless = "#result == null"
     )
@@ -50,13 +48,13 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
-//    @CachePut(
-//            value = "products",
-//            key = "#id",
-//            unless = "#result == null"
+//    @CacheEvict(
+//            value = "product",
+//            key = "#id"
 //    )
     @Transactional
     public ProductResponse updateProduct(Long id, ProductRequest productRequest) {
+        String key = "products_" + id;
         Product product = productRepository.findById(id).orElse(null);
         if (product == null) {
             return null;
@@ -72,7 +70,8 @@ public class ProductServiceImpl implements ProductService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        applicationEventPublisher.publishEvent(new ProductUpdateEvent(this, product.getId()));
+        basicRedisService.set(key , mapToProductResponse(updatedProduct), 10L, java.util.concurrent.TimeUnit.MINUTES);
+        applicationEventPublisher.publishEvent(new ProductUpdateEvent(this, id));
         return mapToProductResponse(updatedProduct);
     }
 
@@ -89,17 +88,24 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
-    @Cacheable(
-            value = "product_search",
-            key = "#keyword",
-            condition = "#keyword.length() >= 3",
-            unless = "#result.isEmpty()"
-    )
+//    @Cacheable(
+//            value = "product_search",
+//            key = "#keyword",
+//            condition = "#keyword.length() >= 3",
+//            unless = "#result.isEmpty()"
+//    )
     public List<ProductResponse> getAllProductsBykeyword(String keyword) {
+        String key = "product_search_" + keyword;
+        List<ProductResponse> cachedProducts = basicRedisService.getList(key, ProductResponse.class);
+        if (cachedProducts != null) {
+            log.info("Fetching products with keyword '{}' from cache", keyword);
+            return cachedProducts;
+        }
         List<Product> products = productRepository.findByNameContainingIgnoreCase(keyword);
-        return products.stream()
-                .map(this::mapToProductResponse)
-                .toList();
+        List<ProductResponse> productResponseList = products.stream().map(this::mapToProductResponse).toList();
+        basicRedisService.set(key, productResponseList, 10L, java.util.concurrent.TimeUnit.MINUTES);
+        log.info("Fetching products with keyword '{}' from database", keyword);
+        return productResponseList;
     }
 
     @Override

@@ -14,7 +14,7 @@ public class ProductCacheListener {
 
     @EventListener
     @CacheEvict(
-            value = "products",
+            value = "product",
             key = "#event.productId"
     )
     public void handleProductDeleteEvent(ProductDeleteEvent event) {
@@ -22,7 +22,10 @@ public class ProductCacheListener {
     }
 
     @EventListener
+    @CacheEvict(
+            value = "product",
+            key = "#event.productId"
+    )
     public void handleProductUpdateEvent(ProductUpdateEvent event) {
-        basicRedisService.delete(String.valueOf(event.getProductId()));
     }
 }

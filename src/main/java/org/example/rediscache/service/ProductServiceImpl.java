@@ -2,6 +2,8 @@ package org.example.rediscache.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.example.rediscache.event.ProductDeleteEvent;
+import org.example.rediscache.event.ProductUpdateEvent;
 import org.example.rediscache.model.Product;
 import org.example.rediscache.payload.dto.ProductResponse;
 import org.example.rediscache.payload.request.ProductRequest;
@@ -9,7 +11,9 @@ import org.example.rediscache.repository.ProductRepository;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -19,6 +23,7 @@ import java.util.List;
 @Slf4j
 public class ProductServiceImpl implements ProductService {
     private final ProductRepository productRepository;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
 
     @Override
@@ -36,6 +41,7 @@ public class ProductServiceImpl implements ProductService {
         return mapToProductResponse(product);
     }
 
+    @Transactional
     @Override
     public ProductResponse createProduct(ProductRequest productRequest) {
         Product product = mapToProductEntity(productRequest);
@@ -44,31 +50,42 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
-    @CachePut(
-            value = "products",
-            key = "#id",
-            unless = "#result == null"
-    )
+//    @CachePut(
+//            value = "products",
+//            key = "#id",
+//            unless = "#result == null"
+//    )
+    @Transactional
     public ProductResponse updateProduct(Long id, ProductRequest productRequest) {
         Product product = productRepository.findById(id).orElse(null);
         if (product == null) {
             return null;
         }
+        applicationEventPublisher.publishEvent(new ProductUpdateEvent(this, id));
         product.setName(productRequest.getName());
         product.setSku(productRequest.getSku());
         product.setPrice(productRequest.getPrice());
         product.setDescription(productRequest.getDescription());
         Product updatedProduct = productRepository.save(product);
+        try {
+            Thread.sleep(100);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        applicationEventPublisher.publishEvent(new ProductUpdateEvent(this, product.getId()));
         return mapToProductResponse(updatedProduct);
     }
 
     @Override
-    @CacheEvict(
-            value = "products",
-            key = "#id"
-    )
+//    @CacheEvict(
+//            value = "products",
+//            key = "#id"
+//    )
+    @Transactional
     public void deleteProduct(Long id) {
+        log.info("Deleting product with id {} from database", id);
         productRepository.deleteById(id);
+        applicationEventPublisher.publishEvent(new ProductDeleteEvent(this, id));
     }
 
     @Override

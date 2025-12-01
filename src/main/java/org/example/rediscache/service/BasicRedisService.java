@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -25,7 +26,7 @@ public class BasicRedisService {
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
-        redisTemplate.opsForValue().set(key, jsonValue, timeout, timeUnit);
+        redisTemplate.opsForValue().set(key, jsonValue, timeout + new Random().nextLong() , timeUnit);
     }
 
     public <T> T get(String key , Class<T> clazz){

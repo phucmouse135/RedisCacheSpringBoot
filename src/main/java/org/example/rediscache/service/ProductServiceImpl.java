@@ -8,6 +8,7 @@ import org.example.rediscache.model.Product;
 import org.example.rediscache.payload.dto.ProductResponse;
 import org.example.rediscache.payload.request.ProductRequest;
 import org.example.rediscache.repository.ProductRepository;
+import org.example.rediscache.utils.MonitoredCache;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.cache.annotation.Cacheable;
@@ -36,6 +37,7 @@ public class ProductServiceImpl implements ProductService {
 //            key = "#id",
 //            unless = "#result == null"
 //    )
+    @MonitoredCache(name = "product_id")
     public ProductResponse getProductById(Long id) {
         log.info("Fetching product with id {} from database", id);
         String key = "products_" + id;
@@ -126,6 +128,7 @@ public class ProductServiceImpl implements ProductService {
 //            key = "#id"
 //    )
     @Transactional
+    @MonitoredCache(name = "product_update")
     public ProductResponse updateProduct(Long id, ProductRequest productRequest) {
         String key = "products_" + id;
         Product product = productRepository.findById(id).orElse(null);

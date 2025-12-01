@@ -10,6 +10,8 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 @Component
@@ -20,14 +22,12 @@ public class MultiLevelCacheService {
     private final ObjectMapper objectMapper;
     private static final String INVALIDATE_TOPIC = "cache:invalidate";
 
-
     private final Cache<String , Object > localCache = Caffeine.newBuilder()
             .maximumSize(1000)
-            .expireAfterWrite(1, TimeUnit.MINUTES)
+            .expireAfterWrite(1 , TimeUnit.MINUTES)
             .build();
 
     public <T> void set(String key , T value , Long timeout , TimeUnit timeUnit) {
-
         String jsonValue = null;
         try {
             jsonValue = objectMapper.writeValueAsString(value);
@@ -36,8 +36,15 @@ public class MultiLevelCacheService {
         }
         // Set in local cache
         localCache.put(key, jsonValue);
-        // Set in Redis
-        redisTemplate.opsForValue().set(key, jsonValue, timeout, timeUnit);
+
+        long timeoutMillis = timeUnit.toMillis(timeout);
+        long maxJitter = Math.min(timeoutMillis, 60_000L); // jitter at most 60s or timeoutMillis
+        long jitterMillis = ThreadLocalRandom.current().nextLong(0, maxJitter + 1);
+        long ttlMillis = timeoutMillis + jitterMillis;
+        if (ttlMillis > 0) {
+            redisTemplate.opsForValue().set(key, jsonValue, ttlMillis, TimeUnit.MILLISECONDS);
+            return;
+        }
     }
 
     public <T> T get(String key , Class<T> clazz){
